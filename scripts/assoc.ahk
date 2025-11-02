@@ -3,8 +3,10 @@
 ; * update CLICK0 according to window layout, scale (use AHK's built in Window Spy)
 ; * set ASSOC_PATH
 ; * set ASSOC_ITEM
-; * load this ahk script
+; * set ASSOC_DRY_RUN for testing
+; * load this script into AHK
 ; Trigger with: Alt + A
+; See FILE_LOG for logs.
 ;
 ; Tested on: Windows 11 25H2 (build 26200.6899)
 
@@ -14,148 +16,237 @@
 ; Win + Shift + R: reload script -- enable if needed
 ;#+R:: Reload()
 
-;#HotIf WinActive("ahk_exe ApplicationFrameHost.exe")
 #HotIf WinActive("ahk_class ApplicationFrameWindow")
 !A::assocAll()
 #HotIf
 
-; client coordinates - points to label: "Set a default for a file type or link type"
-CLICK0 := [500, 150]
+ASSOC_DEBUG   := true
+ASSOC_DRY_RUN := false
+FILE_LOG      := EnvGet("tmp") . "\assoc.log"
 
+; Settings > Default Apps window / any point in label: "Set a default for a file type or link type" in client coordinates
+ASSOC_CLICK0 := [500, 150]  ; 125% window scale
+;ASSOC_CLICK0 := [400, 120]  ; 100% window scale
+
+TITLE := "assoc.ahk"
 ; pairs of: file type (.extention), app path
 ASSOC_PATH := [
+    ;[".avi",  "c:\prg\mpv\mpv.exe"],
+    ;[".flac", "c:\prg\mpv\mpv.exe"],
+    ;[".flv",  "c:\prg\mpv\mpv.exe"],
+    ;[".m4a",  "c:\prg\mpv\mpv.exe"],
+    ;[".mka",  "c:\prg\mpv\mpv.exe"],
+    ;[".mkv",  "c:\prg\mpv\mpv.exe"],
+    ;[".mp2",  "c:\prg\mpv\mpv.exe"],
+    ;[".mp3",  "c:\prg\mpv\mpv.exe"],
+    ;[".mp4",  "c:\prg\mpv\mpv.exe"],
+    ;[".mpeg", "c:\prg\mpv\mpv.exe"],
+    ;[".mpg",  "c:\prg\mpv\mpv.exe"],
+    ;[".ogg",  "c:\prg\mpv\mpv.exe"],
+    ;[".opus", "c:\prg\mpv\mpv.exe"],
     ;[".jpeg", "c:\prg\irfanview\i_view64.exe"],
     ;[".jpg",  "c:\prg\irfanview\i_view64.exe"],
+    ;[".gif",  "c:\prg\irfanview\i_view64.exe"],
+    ;[".png",  "c:\prg\irfanview\i_view64.exe"],
+    ;[".tif",  "c:\prg\irfanview\i_view64.exe"],
+    ;[".pdf",  "c:\prg\pdf\SumatraPDF.exe"],
+    ;[".json", "c:\prg\vscode\Code.exe"],
 ]
 
 ; pairs of: file (.extention) / link type, sugested item index (assign to Nth suggested app in the list)
 ASSOC_ITEM := [
     ;[".htm",   1],
     ;[".html",  1],
-    ;["http",   1],
-    ;["https",  1],  ; automatically changes with 'http' ?
+    ;[".mhtml", 1],
+    ;[".svg",   1],
+    ;[".xht",   1],
+    ;[".xhtml", 1],
+    ;["http",   1],  ; 'https' association is changed automatically with 'http'
 ]
 
-D_SHT := 100
-D_LNG := 500
-MSG_CONTINUE := "`n(Continuing automatically in 3s.)"
-MSG_OPT := "1 T3"
-
-
 assocAll() {
-    global hwndSettings
-    hwndSettings := WinActive()
-    res := "OK"
-    for (a in ASSOC_PATH) {
-        if (!isContinue(res)) {
-            break
+    winSettingsHwnd := WinActive("A")
+    assoc1 := AssocPath(winSettingsHwnd)
+    assoc2 := AssocItem(winSettingsHwnd)
+    assoc1.beep()
+    assoc1.log(TITLE . " started (hwnd=" . winSettingsHwnd . ")")
+    res := assoc1.run() && assoc2.run()
+    if (ASSOC_DEBUG) {
+        s := TITLE . (res ? " done" : " cancelled")
+        assoc1.log(s . "`n")
+        assoc1.beep()
+        MsgBox(s, TITLE)
+    }
+}
+
+class AssocBase {
+    static D_SHT_MS := 200
+    static D_LNG_MS := 500
+    static D_CONT_S := 1
+    static MSG_CONTINUE := "`n(Continuing automatically in " . AssocBase.D_CONT_S . "s.)"
+    static MSG_OPT      := "1 T" . AssocBase.D_CONT_S
+
+    isDebug  := ASSOC_DEBUG
+    isDryRun := ASSOC_DRY_RUN
+    res      := "OK"
+
+    __New(winSettingsHwnd, assocList) {
+        this.winSettingsHwnd := winSettingsHwnd
+        this.assocList := assocList
+    }
+
+    run() {
+        for (item in this.assocList) {
+            if (this.isContinue()) {
+                this.assoc(item)
+            }
         }
-        res := assocPath(a[1], a[2])
+        return this.isContinue()
     }
-    for (a in ASSOC_ITEM) {
-        if (!isContinue(res)) {
-            break
+
+    assoc(item) {
+        this.log(this.getAssocMsg(item))
+        this.selectType(item[1])
+        if (this.isDebug && this.isContinue()) {
+            this.res := MsgBox(this.getAssocMsg(item) . AssocBase.MSG_CONTINUE, TITLE, AssocBase.MSG_OPT)
+            Sleep(AssocBase.D_LNG_MS)
         }
-        res := assocItem(a[1], a[2])
-    }
-    if (!isContinue(res)) {
-        MsgBox("Script cancelled.", "Info")
-    }
-}
-
-assocPath(type, appPath) {
-    res := selectType(type)
-    if (isContinue(res)) {
-        ;res := MsgBox("Assigning '" . type . "' to app: '" . appPath . "'..." . MSG_CONTINUE, "Info", MSG_OPT)
-    }
-    if (isContinue(res)) {
-        dialogSelectDefaultAppOpen()
-        itemChooseAppOnPC()
-        dialogChooseAppOnPC(appPath)
-        dialogSelectDefaultAppClose()
-        Sleep(D_LNG)
-    }
-    return res
-}
-
-assocItem(type, idx) {
-    res := selectType(type)
-    if (isContinue(res)) {
-        ;res := MsgBox("Assigning '" . type . "' to list item[" . idx . "]..." . MSG_CONTINUE, "Info", MSG_OPT)
-    }
-    if (isContinue(res)) {
-        dialogSelectDefaultAppOpen()
-        selectAppItem(idx)
-        res := dialogSelectDefaultAppClose()
-        Sleep(D_LNG)
-    }
-    return res
-}
-
-selectInputType() {
-    Send("{Click " . CLICK0[1] . " " . CLICK0[2] . "}")
-    Sleep(D_SHT)
-}
-
-selectType(type) {
-    global hwndSettings
-    if (hwndSettings = WinActive()) {
-        selectInputType()
-        Send("^A")  ; select existing text
-        Sleep(D_SHT)
-        SendText(type)
-        Sleep(D_SHT)
-        Send("{Enter}")  ; select first item from popup list
-        Sleep(D_LNG)
-        Send("{Tab}")  ; move to selected type
-        Sleep(D_SHT)
-        return "OK"
-    } else {  ; another window has been activated
-        return "Cancel"
-    }
-}
-
-; open "Select a default app for ..." dialog
-dialogSelectDefaultAppOpen() {
-    Send("{Enter}")
-    Sleep(D_LNG)
-}
-
-dialogSelectDefaultAppClose() {
-    Send("{Enter}")  ; select item and move to "Set default" button
-    Sleep(D_LNG)
-    Send("{Enter}")  ; set default
-    return "OK"
-}
-
-; select list item: "Choose an app on your PC"
-itemChooseAppOnPC() {
-    Send("+{Tab}")
-    Sleep(D_SHT)
-}
-
-dialogChooseAppOnPC(appPath) {
-    Send("{Enter}")  ; open dialog
-    Sleep(D_LNG)
-    SendText(appPath)
-    Sleep(D_LNG)
-    Send("{Enter}")  ; close dialog
-    Sleep(D_LNG)
-}
-
-selectAppItem(idx) {
-    Send("{Tab}")  ; go to list
-    if (idx > 0) {
-        Sleep(D_SHT)
-        Send("{Down}")  ; select list item: "Suggested apps"
-        Loop idx {
-            Sleep(D_SHT)
-            Send("{Down}")  ; select next list item
+        if (this.isContinue()) {
+            hwnd := this.dialogSelectDefaultAppOpen()
+            if (this.isContinue()) {
+                this.assocSelect(item)
+                this.dialogSelectDefaultAppClose(hwnd)
+            }
         }
     }
-    Sleep(D_LNG)
+
+    assocSelect(item) {  ; "abstract" placeholder
+    }
+
+    selectType(type) {
+        if (this.isContinue() && this.isWinActive()) {
+            this.selectInputType()
+            this.sendSleep("^A",      AssocBase.D_LNG_MS)  ; select existing text
+            this.sendSleep(type)
+            this.sendSleep("{Enter}", AssocBase.D_LNG_MS)  ; select first item from popup list
+            this.sendSleep("{Tab}",   AssocBase.D_LNG_MS)  ; move to selected type
+        }
+    }
+
+    selectInputType() {
+        this.sendSleep("{Click " . ASSOC_CLICK0[1] . " " . ASSOC_CLICK0[2] . "}")
+    }
+
+    ; open "Select a default app for ..." dialog
+    ; return: new dialog hwnd
+    dialogSelectDefaultAppOpen() {
+        this.sendSleep("{Enter}", AssocBase.D_LNG_MS)
+        hwnd := WinActive("A")
+        this.log("Open  'Select a default app for ...' dialog (hwnd=" . hwnd . ")")
+        return this.isWinInActive() ? hwnd : 0
+    }
+
+    dialogSelectDefaultAppClose(hwnd) {
+        if (this.isContinue() && this.isWinActive(hwnd)) {
+            this.log("Close 'Select a default app for ...' dialog (hwnd=" . hwnd . ")")
+            if (this.isDryRun && this.isDebug) {
+                Sleep(AssocBase.D_CONT_S * 1000)
+            }
+            this.sendSleep("{Enter}", AssocBase.D_LNG_MS)  ; select item and move to "Set default" button
+            this.sendSleep(this.isDryRun ? "{Escape}" : "{Enter}", AssocBase.D_LNG_MS)  ; set default
+        }
+    }
+
+    sendSleep(keys, d := AssocBase.D_SHT_MS) {
+        SendInput(keys)
+        Sleep(d)
+    }
+
+    isWinActive(hwnd := 0) {
+        return this.isWinActive0(1, "Dialog window deactivated: ", hwnd)
+    }
+
+    isWinInActive(hwnd := 0) {
+        return this.isWinActive0(0, "New dialog window not opened.", hwnd)
+    }
+
+    ; param isActive: boolean: check for active or inactive window
+    isWinActive0(isActive, msg, hwnd := 0) {
+        hwnd  := hwnd != 0 ? hwnd : this.winSettingsHwnd
+        hwnda := WinActive("A")
+        res := (hwnd = hwnda) = isActive  ; window is active / inactive as expected
+        if (!res) {
+            this.log("ERROR: " . msg . (isActive ? hwnd . " != " . hwnda : ""))
+            this.stop()
+        }
+        return res
+    }
+
+    isContinue() {
+        return this.res = "OK" || this.res = "Timeout"
+    }
+
+    stop() {
+        this.log("Stopping")
+        this.res := "Cancel"
+        this.beep()
+    }
+
+    log(s) {
+        FileAppend(FormatTime(, "yyyy-MM-dd HH:mm:ss") . " " . s . "`n", FILE_LOG)
+    }
+
+    beep() {
+        SoundPlay(A_WinDir . "\Media\Windows Default.wav")
+    }
 }
 
-isContinue(res) {
-    return res = "OK" || res = "Timeout"
+class AssocPath extends AssocBase {
+    __New(winSettingsHwnd) {
+        super.__New(winSettingsHwnd, ASSOC_PATH)
+    }
+
+    getAssocMsg(item) {
+        return "Assign '" . item[1] . "' to app: '" . item[2] . "'"
+    }
+
+    assocSelect(item) {
+        this.itemChooseAppOnPC()
+        this.dialogChooseAppOnPC(item[2])
+    }
+
+    ; select list item: "Choose an app on your PC"
+    itemChooseAppOnPC() {
+        this.sendSleep("+{Tab}")
+    }
+
+    dialogChooseAppOnPC(appPath) {
+        this.sendSleep("{Enter}", AssocBase.D_LNG_MS)  ; open dialog
+        this.sendSleep(appPath,   AssocBase.D_LNG_MS)  ; select app
+        this.sendSleep("{Enter}", AssocBase.D_LNG_MS)  ; close dialog
+        ;this.sendSleep(appPath . "{Enter}", AssocBase.D_LNG_MS)  ; close dialog
+    }
+}
+
+class AssocItem extends AssocBase {
+    __New(winSettingsHwnd) {
+        super.__New(winSettingsHwnd, ASSOC_ITEM)
+    }
+
+    getAssocMsg(item) {
+        return "Assign '" . item[1] . "' to list item[" . item[2] . "]"
+    }
+
+    assocSelect(item) {
+        this.selectAppItem(item[2])
+    }
+
+    selectAppItem(idx) {
+        if (idx > 0) {
+            this.SendSleep("{Tab}")  ; go to list
+            Loop idx + 1 {  ; select list item: "Suggested apps" + idx
+                this.SendSleep("{Down}")
+            }
+        }
+    }
 }
